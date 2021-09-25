@@ -56,9 +56,164 @@
 
 % START START START START START START START START START START START START START
 
-\begin{frame}{First slide}
+\begin{frame}{Language transitions}
+\Large
 \vspace{0.5 cm}
-HERE
+
+Physicists (like everybody) have to overcome an ``activation energy'' to switch programming languages.
+
+\vspace{0.5 cm}
+
+\begin{uncoverenv}<2->
+On a large scale, it has only happened a few times.
+
+\vspace{0.5 cm}
+
+\includegraphics[width=\linewidth]{programming-languages.pdf}
+\end{uncoverenv}
 \end{frame}
+
+\begin{frame}{Language transitions}
+\vspace{0.35 cm}
+\large
+
+The benefits have to be significant: not a laundry list of little features.
+
+\vspace{0.25 cm}
+
+\begin{description}
+\item<2->[Assembly $\to$ Fortran:] \textcolor{darkorange}{\bf hardware independence, math-like expressions.}
+
+\vspace{0.15 cm}
+\item<3->[Fortran $\to$ C++:] \textcolor{darkorange}{\bf nested data structures.}
+
+\vspace{0.15 cm}
+``Data bank'' libraries like ZEBRA and BOS addressed this problem in pre-Fortran 90, but with rough edges that \mintinline{c++}{struct}/\mintinline{c++}{class} avoid.
+
+\vspace{0.15 cm}
+\item<4->[C++ $\to$ Python:] \textcolor{darkorange}{\bf dynamic interactivity, introspection.}
+
+\vspace{0.15 cm}
+CINT, TClass, and now Cling address this problem in C++, but with rough edges that a ``ground up'' dynamic language avoids.
+
+\vspace{0.15 cm}
+\item<5->[C++/Python mix $\to$ Julia:] \textcolor{darkorange}{\bf built-in JIT? autodiff?}
+
+\vspace{0.15 cm}
+Cling-in-Python (PyROOT/cppyy) and Numba address JIT now; JAX addresses autodiff. Are the rough edges bad enough to drive physicists to a new language?
+\end{description}
+\end{frame}
+
+\begin{frame}{Numba's rough edges}
+\vspace{0.5 cm}
+
+\uncover<1->{\textcolor{darkblue}{\Large Numba compiles statically typed Python, but the Python language was not designed to be statically typed.}}
+
+\vspace{0.25 cm}
+\begin{itemize}\setlength{\itemsep}{0.5 cm}
+\item<2-> {\large Yes, Python has type annotations/mypy now, but granularity is mostly for correctness-checking, not compilation.}
+
+\vspace{0.15 cm}
+\begin{uncoverenv}<3->
+\small \begin{tabular}{l l}
+item type & \mintinline{python}{numpy.typing.NDArray[numpy.float64]} \\
+item type, ndims & \mintinline{python}{Array{Float64, 3}} \textcolor{darkgreen}{\bf (Julia)} \\
+item type, ndims, stride layout & \mintinline{python}{numba.types.Array(3, numba.float64, "C")} \\
+item type, ndims with lengths & \mintinline{python}{jax.ShapedArray((2, 3, 5), numpy.float64)} \\
+\end{tabular}
+\end{uncoverenv}
+
+\normalsize
+\item<4-> Adding fields to existing objects or changing an object's type are basic parts of the Python language, but can never be supported in statically compiled Numba.
+
+\item<5-> Any library with types Numba doesn't recognize can't be used in compiled code.
+
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Numba's rough edges}
+\vspace{0.27 cm}
+
+\begin{columns}
+\column{0.55\linewidth}
+\includegraphics[width=\linewidth]{supported-python-features.png}
+
+\column{0.55\linewidth}
+\includegraphics[width=\linewidth]{supported-numpy-features.png}
+
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Awkward Array, Vector, and soon Hist (PR \#293) in Numba}
+\small
+\vspace{0.1 cm}
+
+\begin{minted}{python}
+@nb.jit                                         # input Awkward Arrays
+def delta_r_matching(array_reco, array_gen, builder):
+    for reco_event, gen_event in zip(array_reco, array_gen):
+        builder.begin_list()                    # output Awkward Array
+        for muon in reco_event:                 # nested list
+            best_i = -1
+            best_dr = -1.0
+            for i, gen in enumerate(gen_event): # nested list
+                dr = muon.deltaR(gen)           # Vector!
+                if best_i < 0 or dr < best_dr:
+                    best_i = i
+                    best_dr = dr
+            if best_i < 0:
+                builder.append(None)
+            else:
+                builder.append(gen_event[best_i])
+        builder.end_list()
+    return builder
+\end{minted}
+\end{frame}
+
+\begin{frame}[fragile]{Awkward Array/Numba interface is designed for quick excursions}
+\large
+\vspace{0.5 cm}
+
+\begin{enumerate}\setlength{\itemsep}{0.5 cm}
+\item<1-> No memory management: Awkward Arrays passed to \mintinline{python}{@nb.jit} functions as borrowed references and cannot be created in the \mintinline{python}{@nb.jit} function.
+
+\item<2-> Therefore, the \mintinline{python}{ak.*} functions can't be called in any \mintinline{python}{@nb.jit} functions. Only iteration (nested \mintinline{python}{for} loops) is allowed.
+
+\item<3-> Every Awkward Array in lowered Numba is represented as
+
+\small \begin{minted}{c++}
+struct {
+    size_t pos;          // nesting level (index in arrayptrs)
+    size_t start, stop;  // view within this nesting level
+    void** arrayptrs;    // pointers to actual array data
+    void** sharedptrs;   // workaround for C++ memory management
+    PyObject* pylookup;  // keep borrowed references in scope
+}                        // total: 48 bytes
+\end{minted}
+
+\large with type-specific code generated for each \mintinline{c++}{pos} (type erased).
+
+\end{enumerate}
+\end{frame}
+
+\begin{frame}{\mbox{ }}
+\Large
+\vspace{0.5 cm}
+
+\begin{columns}
+\column{0.92\linewidth}
+A similar interface to Julia
+
+\vspace{0.25 cm}
+\large
+\begin{itemize}
+\item would not be a large-scale project
+\item would offer an alternative to Numba with the advantages of Julia
+\item would be an incentive for physicists to take quick excursions into Julia.
+\end{itemize}
+\end{columns}
+\end{frame}
+
+
 
 \end{document}
